@@ -30,7 +30,7 @@ def example1():
 
 
 def example2():
-    phi = np.pi / 24
+    phi = -np.pi / 24
     px = 0.5
     py = 0.5
 
@@ -43,9 +43,12 @@ def example2():
 
     target_points = np.dot(source_points, R.T) + p
 
-    R, p, j = pyicp.find_transformation(source_points, target_points, 10, 20)
+    R, p, j = pyicp.find_transformation(source_points, target_points,
+                                        num_neighbors=10, num_iterations=20,
+                                        indist=0.05)
 
     tranformed_points = np.dot(source_points, R.T) + p
+    print "criterion =", j
 
     plt.plot(target_points[:,0], target_points[:,1], 'bo')
     plt.plot(source_points[:,0], source_points[:,1], 'ro')

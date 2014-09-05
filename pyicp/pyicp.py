@@ -4,8 +4,10 @@ from numpy.linalg import svd, lstsq
 
 from scipy.spatial import cKDTree
 
-import functools as fcn
 import random
+import operator
+import functools as fcn
+from itertools import islice, takewhile
 
 
 def find_normal(neighbor_points):
@@ -26,14 +28,20 @@ def calculate_normals(tree, num_neighbors=10):
     return normals
 
 
-def icp2d_step(target_tree, normals, source_points):
+def icp2d_step(indist, target_tree, normals, source_points):
 
-    _, idxss = target_tree.query(source_points)
+    distances, idxs = target_tree.query(source_points)
 
-    ts = np.array([target_tree.data[idxs] for idxs in idxss])
-    ns = np.array([normals[idxs] for idxs in idxss])
+    if indist:
+        idxs = idxs[distances < indist]
+        ss = source_points[distances < indist]
+    else:
+        ss = source_points
 
-    ss = source_points
+
+    ts = np.array([target_tree.data[idx] for idx in idxs])
+    ns = np.array([normals[idx] for idx in idxs])
+
 
     b = np.array(map(np.dot, ss - ts, ns))
 
@@ -45,7 +53,9 @@ def icp2d_step(target_tree, normals, source_points):
 
     x, j, _, _ = lstsq(A, b)
 
-    return x, j
+    R, p = get_matrices(x)
+
+    return R, p, j
 
 
 def get_matrices(x):
@@ -56,27 +66,29 @@ def get_matrices(x):
 
 
 def find_transformation(source_points, target_points, num_neighbors=10,
-                        num_iterations=100):
+                        num_iterations=100, eps=1e-15, indist=None):
 
-    dmax = max(source_points.std(), target_points.std())
+# 99% scale to square [-1, 1] x [-1, 1]
+    dmax = 3 * max(source_points.std(), target_points.std())
     ss = source_points / dmax
     ts = target_points / dmax
 
+# create kd tree
     target_tree = cKDTree(ts)
     normals = calculate_normals(target_tree, num_neighbors)
 
-    icp_fit = fcn.partial(icp2d_step, target_tree, normals)
 
-    x, j = icp_fit(ss)
+# fitting function
+    icp_fit = fcn.partial(icp2d_step, indist, target_tree, normals)
 
+    R, p, j = icp_fit(ss)
     for _ in xrange(num_iterations):
-        R, p = get_matrices(x)
         tfs = np.dot(ss, R.T) + p
-        dx, j = icp_fit(tfs)
-        x += dx
+        dR, dp, j = icp_fit(tfs)
+        R = np.dot(dR, R)
+        p += dp
 
-    x[1:] *= dmax
-
-    R, p = get_matrices(x)
+# scale back
+    p *= dmax
 
     return R, p, j
